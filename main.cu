@@ -60,7 +60,7 @@ int main() {
 
     // Cargar imágenes al batch
     for (int i = 0; i < B; i++) {
-        float *img = cargar_png_rgb(archivos[i], &H, &W);
+        float *img = cargar_png_rgb(archivos[i].c_str(), &H, &W);
         for (int c = 0; c < 3; c++)
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
