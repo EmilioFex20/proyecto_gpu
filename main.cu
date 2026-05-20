@@ -146,10 +146,31 @@ int main() {
     // ------------------------------------
     // Guardar imágenes
     // ------------------------------------
-    guardar_png_rgb("resultados/imagen_00_original.png", h_batch, 1, H, W);
-    guardar_png_gris("resultados/imagen_00_grises.png", h_grises, H, W);
-    guardar_png_gris("resultados/imagen_00_bordes.png", h_bordes, H, W);
-    guardar_png_gris("resultados/imagen_00_normalizada.png", h_normalizado, H, W);
+    for (int i = 0; i < B; i++) {
+        // Original RGB
+        guardar_png_rgb(
+            ("resultados/imagen_" + std::to_string(i) + "_original.png").c_str(),
+            &h_batch[i*3*H*W], 1, H, W
+        );
+
+        // Grises
+        guardar_png_gris(
+            ("resultados/imagen_" + std::to_string(i) + "_grises.png").c_str(),
+            &h_grises[i*H*W], H, W
+        );
+
+        // Bordes
+        guardar_png_gris(
+            ("resultados/imagen_" + std::to_string(i) + "_bordes.png").c_str(),
+            &h_bordes[i*H*W], H, W
+        );
+
+        // Normalizado
+        guardar_png_gris(
+            ("resultados/imagen_" + std::to_string(i) + "_normalizada.png").c_str(),
+            &h_normalizado[i*H*W], H, W
+        );
+    }
 
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
     for (int i = 0; i < B; i++) fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
