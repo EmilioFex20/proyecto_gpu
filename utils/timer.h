@@ -1,7 +1,14 @@
+// utils/timer.h
 #ifndef TIMER_H
 #define TIMER_H
 
-struct TimerGPU;
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+struct TimerGPU {
+    cudaEvent_t start, stop;
+};
+
 void iniciar_timer(TimerGPU* t);
 void iniciar_timer_event(TimerGPU* t);
 void detener_timer_event(TimerGPU* t, const char* nombre);
