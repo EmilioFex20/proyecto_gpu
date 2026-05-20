@@ -17,15 +17,6 @@ Paso B: kernel de división  → divide cada píxel entre el max de su imagen
 #include <stdio.h>
 #include <math.h>
 
-#define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-    if (code != cudaSuccess) 
-    {
-        fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        if (abort) exit(code);
-    }
-}
 
 // Paso A: kernel de reducción para obtener máximo por imagen
 __global__ void max_por_imagen(float *entrada, float *maximos, int B, int H, int W) {

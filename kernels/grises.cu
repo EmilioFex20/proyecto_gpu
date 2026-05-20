@@ -10,15 +10,7 @@ Fórmula: Gris = 0.2989*R + 0.5870*G + 0.1140*B
 #include <cuda_runtime.h>
 #include <stdio.h>
 
-#define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-    if (code != cudaSuccess) 
-    {
-        fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        if (abort) exit(code);
-    }
-}
+
 
 // Kernel 1: convierte un batch de imágenes RGB a escala de grises
 __global__ void escala_grises(float *entrada, float *salida, int B, int H, int W) {

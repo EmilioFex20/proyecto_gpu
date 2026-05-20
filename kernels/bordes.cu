@@ -11,15 +11,6 @@ El filtro Sobel calcula el gradiente de intensidad en X y en Y:
 #include <stdio.h>
 #include <math.h>
 
-#define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-    if (code != cudaSuccess) 
-    {
-        fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        if (abort) exit(code);
-    }
-}
 
 // Kernel 2: Detecta bordes con filtro Sobel en cada imagen del batch
 __global__ void detectar_bordes(float *entrada, float *salida, int B, int H, int W) {

@@ -16,15 +16,6 @@ Para cada imagen b del batch:
 #include <stdio.h>
 #include <math.h>
 
-#define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
-{
-    if (code != cudaSuccess) 
-    {
-        fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        if (abort) exit(code);
-    }
-}
 
 // Kernel 4: calcula RMSE de cada imagen vs referencia
 __global__ void calcular_rmse(float *entrada, float *referencia, float *rmse, int B, int H, int W) {
