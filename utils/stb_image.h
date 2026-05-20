@@ -1087,6 +1087,7 @@ static int stbi__mul2shorts_valid(int a, int b)
 // stbi__errpf - error returning pointer to float
 // stbi__errpuc - error returning pointer to unsigned char
 
+/*
 #ifdef STBI_NO_FAILURE_STRINGS
    #define stbi__err(x,y)  0
 #elif defined(STBI_FAILURE_USERMSG)
@@ -1094,6 +1095,7 @@ static int stbi__mul2shorts_valid(int a, int b)
 #else
    #define stbi__err(x,y)  stbi__err(x)
 #endif
+*/
 
 #define stbi__errpf(x,y)   ((float *)(size_t) (stbi__err(x,y)?NULL:NULL))
 #define stbi__errpuc(x,y)  ((unsigned char *)(size_t) (stbi__err(x,y)?NULL:NULL))
