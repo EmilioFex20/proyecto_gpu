@@ -2,12 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include "kernels/grises.cu"
-#include "kernels/bordes.cu"
-#include "kernels/normalizar.cu"
+//#include "kernels/grises.cu"
+//#include "kernels/bordes.cu"
+//#include "kernels/normalizar.cu"
 #include "kernels/mse.cu"
-#include "utils/imagen.cu"
-#include "utils/timer.cu"
+//#include "utils/imagen.cu"
+//#include "utils/timer.cu"
 #include <dirent.h>  // Para leer directorios
 #include <vector>
 #include <string>
