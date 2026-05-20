@@ -56,6 +56,7 @@ int main() {
     // -------------------
     // Parámetros de prueba
     // -------------------
+    printf("Inicio del pipeline\n");
     const char* carpeta = "imagenes";
     std::vector<std::string> archivos = obtener_archivos(carpeta);
     int B = archivos.size();
@@ -72,10 +73,11 @@ int main() {
                     h_batch[i*3*H*W + c*H*W + y*W + x] = img[c*H*W + y*W + x];
         free(img);
     }
-
+    printf("Batch copiado a GPU\n");
     // ------------------------------------
     // Reservar memoria GPU
     // ------------------------------------
+    printf("Reservando memoria en GPU\n");
     float *d_entrada, *d_grises, *d_bordes, *d_normalizado;
     float *d_maximos, *d_rmse, *d_referencia;
     CUDA_CHECK(cudaMalloc(&d_entrada, B*3*H*W*sizeof(float)));
@@ -85,6 +87,8 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_maximos, B*sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_rmse, B*sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_referencia, H*W*sizeof(float)));
+
+    printf("Memoria en GPU reservada\n");
 
     // Copiar batch a GPU
     CUDA_CHECK(cudaMemcpy(d_entrada, h_batch, B*3*H*W*sizeof(float), cudaMemcpyHostToDevice));
@@ -103,18 +107,22 @@ int main() {
     iniciar_timer(&timer);
 
     // Kernel 1: Grises
+    
+    printf("Ejecutando kernel 1 - Grises\n");
     iniciar_timer_event(&timer);
     escala_grises<<<grid, bloque>>>(d_entrada, d_grises, B, H, W);
     CUDA_CHECK(cudaDeviceSynchronize());
     detener_timer_event(&timer, "Kernel 1 - Grises");
 
     // Kernel 2: Bordes Sobel
+    printf("Ejecutando kernel 2 - Bordes\n");
     iniciar_timer_event(&timer);
     detectar_bordes<<<grid, bloque>>>(d_grises, d_bordes, B, H, W);
     CUDA_CHECK(cudaDeviceSynchronize());
     detener_timer_event(&timer, "Kernel 2 - Bordes");
 
     // Kernel 3: Normalización
+    printf("Ejecutando kernel 3 - Normalización\n");
     iniciar_timer_event(&timer);
     CUDA_CHECK(cudaMemset(d_maximos, 0, B*sizeof(float)));
     max_por_imagen<<<grid, bloque, bloque.x*bloque.y*sizeof(float)>>>(d_bordes, d_maximos, B, H, W);
@@ -123,6 +131,7 @@ int main() {
     detener_timer_event(&timer, "Kernel 3 - Normalización");
 
     // Kernel 4: RMSE
+    printf("Ejecutando kernel 4 - RMSE\n");
     iniciar_timer_event(&timer);
     calcular_rmse<<<1, H*W, H*W*sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -138,10 +147,14 @@ int main() {
     float *h_normalizado = (float*)malloc(B*H*W*sizeof(float));
     float *h_rmse = (float*)malloc(B*sizeof(float));
 
+    printf("Copiando resultados a CPU\n");
+
     CUDA_CHECK(cudaMemcpy(h_grises, d_grises, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_bordes, d_bordes, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_rmse, d_rmse, B*sizeof(float), cudaMemcpyDeviceToHost));
+
+    printf("Resultados copiados a CPU\n");
 
     // ------------------------------------
     // Guardar imágenes
@@ -172,6 +185,7 @@ int main() {
         );
     }
 
+    printf("Imágenes guardadas\n");
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
     for (int i = 0; i < B; i++) fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
     fclose(f);
@@ -179,6 +193,7 @@ int main() {
     // ------------------------------------
     // Liberar memoria
     // ------------------------------------
+    printf("Liberando memoria\n");
     free(h_batch); free(h_grises); free(h_bordes); free(h_normalizado); free(h_rmse);
     CUDA_CHECK(cudaFree(d_entrada)); CUDA_CHECK(cudaFree(d_grises)); CUDA_CHECK(cudaFree(d_bordes));
     CUDA_CHECK(cudaFree(d_normalizado)); CUDA_CHECK(cudaFree(d_maximos)); CUDA_CHECK(cudaFree(d_rmse));
