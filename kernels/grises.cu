@@ -9,7 +9,6 @@ Fórmula: Gris = 0.2989*R + 0.5870*G + 0.1140*B
 */
 #include <cuda_runtime.h>
 #include <stdio.h>
-#include "timer.cu"
 
 #define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)

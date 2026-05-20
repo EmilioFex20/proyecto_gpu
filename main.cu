@@ -8,6 +8,10 @@
 #include "kernels/mse.cu"
 #include "utils/imagen.cu"
 #include "utils/timer.cu"
+#include <dirent.h>  // Para leer directorios
+#include <vector>
+#include <string>
+#include <algorithm>
 
 #define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -19,15 +23,35 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
     }
 }
 
+std::vector<std::string> obtener_archivos(const char* carpeta) {
+    std::vector<std::string> archivos;
+    DIR *dir;
+    struct dirent *ent;
+    if ((dir = opendir(carpeta)) != NULL) {
+        while ((ent = readdir(dir)) != NULL) {
+            std::string nombre(ent->d_name);
+            if (nombre.length() > 4 && (nombre.substr(nombre.length()-4) == ".png" || nombre.substr(nombre.length()-4) == ".jpg")) {
+                archivos.push_back(std::string(carpeta) + "/" + nombre);
+            }
+        }
+        closedir(dir);
+    } else {
+        fprintf(stderr, "No se puede abrir la carpeta %s\n", carpeta);
+        exit(1);
+    }
+
+    // Ordenar para asegurar consistencia
+    std::sort(archivos.begin(), archivos.end());
+    return archivos;
+}
+
 int main() {
     // -------------------
     // Parámetros de prueba
     // -------------------
-    const int B = 8;      // tamaño batch
-    const char *archivos[B] = {
-        "imagenes/img1.png","imagenes/img2.png","imagenes/img3.png","imagenes/img4.png",
-        "imagenes/img5.png","imagenes/img6.png","imagenes/img7.png","imagenes/img8.png"
-    };
+    const char* carpeta = "imagenes";
+    std::vector<std::string> archivos = obtener_archivos(carpeta);
+    int B = archivos.size();
 
     int H, W, C;
     float *h_batch = (float*)malloc(B * 3 * 256 * 256 * sizeof(float));
