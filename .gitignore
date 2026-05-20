@@ -13,3 +13,7 @@
 
 # Carpetas de resultados
 resultados/
+
+.vscode/
+.idea/
+.vs
