@@ -1,0 +1,15 @@
+# Archivos binarios y objetos
+*.o
+*.obj
+*.exe
+*.out
+*.so
+*.a
+
+# Archivos temporales de compilación
+*.log
+*.tmp
+*.cuda
+
+# Carpetas de resultados
+resultados/
