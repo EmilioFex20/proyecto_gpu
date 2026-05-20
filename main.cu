@@ -12,7 +12,12 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-
+#include "utils/imagen.h"
+#include "utils/timer.h"
+#include "kernels/grises.h"
+#include "kernels/bordes.h"
+#include "kernels/normalizar.h"
+#include "kernels/mse.h"
 
 
 #define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
