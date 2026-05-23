@@ -265,9 +265,7 @@ int main() {
     printf("Memoria en GPU reservada\n");
 
     TimerGPU timer;
-    TimerGPU timer_total;
     iniciar_timer(&timer);
-    iniciar_timer(&timer_total);
 
     float h2d_ms = 0.0f;
     float d2h_ms = 0.0f;
@@ -276,9 +274,7 @@ int main() {
     float kernel2_ms = 0.0f;
     float kernel3_ms = 0.0f;
     float kernel4_ms = 0.0f;
-    float tiempo_gpu_total_ms = 0.0f;
-
-    iniciar_timer_event(&timer_total);
+    float tiempo_pipeline_ms = 0.0f;
 
     // Copiar batch a GPU
     printf("Copiando batch a GPU\n");
@@ -354,20 +350,17 @@ int main() {
     CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_rmse, d_rmse, B*sizeof(float), cudaMemcpyDeviceToHost));
     d2h_ms = detener_timer_event(&timer, "Transferencia D→H");
-    tiempo_gpu_total_ms = detener_timer_event(&timer_total, NULL);
+    tiempo_pipeline_ms = kernel1_ms + kernel2_ms + kernel3_ms + kernel4_ms;
 
     printf("Resultados copiados a CPU\n");
-    printf("Tiempo total del pipeline: %.3f ms\n", tiempo_gpu_total_ms);
+    printf("Tiempo total del pipeline: %.3f ms\n", tiempo_pipeline_ms);
     printf("Tiempo de las transferencias H→D y D→H: %.3f ms (H→D: %.3f ms, D→H: %.3f ms)\n",
            h2d_ms + d2h_ms, h2d_ms, d2h_ms);
     printf("Speedup del pipeline completo vs implementación CPU equivalente: %.2fx\n",
-           tiempo_gpu_total_ms > 0.0f ? tiempo_cpu_ms / tiempo_gpu_total_ms : 0.0);
+           tiempo_pipeline_ms > 0.0f ? tiempo_cpu_ms / tiempo_pipeline_ms : 0.0);
     printf("Tiempo extra preparando referencia GPU: %.3f ms\n", referencia_ms);
-    printf("Tiempo total de kernels principales: %.3f ms\n",
-           kernel1_ms + kernel2_ms + kernel3_ms + kernel4_ms);
 
     detener_timer(&timer);
-    detener_timer(&timer_total);
 
     // ------------------------------------
     // Guardar imágenes
