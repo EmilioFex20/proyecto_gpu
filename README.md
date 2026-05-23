@@ -1,3 +1,75 @@
+# Requisitos
+
+Para compilar y ejecutar el proyecto se necesita:
+
+- Windows 10/11
+- GPU NVIDIA compatible con CUDA
+- NVIDIA CUDA Toolkit
+- Visual Studio Build Tools 2019 o 2022
+- Componente Desktop development with C++
+- Visual Studio Code
+- Extensión C/C++ de Microsoft para VS Code
+
+# Configuración recomendada en Windows
+
+Antes de abrir Visual Studio Code, se recomienda abrir una terminal de Visual Studio configurada para x64.
+
+Buscar en Windows:
+
+```x64 Native Tools Command Prompt for VS 2019```
+
+o:
+
+```x64 Native Tools Command Prompt for VS 2022```
+
+Después moverse a la carpeta del proyecto:
+
+```cd C:\Users\TU_USUARIO\Documents\GitHub\proyecto_gpu```
+
+Y abrir VS Code desde esa terminal:
+
+```code .```
+
+
+Esto es importante porque nvcc necesita encontrar el compilador de C++ de Microsoft, cl.exe, en el PATH.
+
+Para verificar que el compilador está bien configurado:
+
+```cl```
+
+Debe aparecer algo similar a:
+
+```Microsoft (R) C/C++ Optimizing Compiler Version ... for x64```
+
+Si aparece for x86, se abrió la terminal incorrecta.
+
+# Compilación
+
+El proyecto incluye una tarea de VS Code en .vscode/tasks.json.
+
+Para compilar desde VS Code:
+
+```Terminal > Run Build Task```
+
+O con el atajo:
+
+```Ctrl + Shift + B```
+
+También se puede compilar manualmente desde la terminal:
+
+
+```nvcc -O2 -o pipeline.exe main.cu kernels/grises.cu kernels/bordes.cu kernels/normalizar.cu kernels/mse.cu utils/imagen.cu utils/timer.cu```
+
+Si hay problemas con optimización, se puede probar primero con:
+
+```nvcc -O0 -o pipeline.exe main.cu kernels/grises.cu kernels/bordes.cu kernels/normalizar.cu kernels/mse.cu utils/imagen.cu utils/timer.cu```
+
+# Ejecución
+
+Después de compilar, se genera el ejecutable:
+
+```pipeline.exe```
+
 ### Kernel 1: Escala de grises
 
 Este kernel convierte un batch de imágenes RGB (4D: B×3×H×W) a escala de grises (3D: B×H×W). 
@@ -89,3 +161,4 @@ Funciones para cargar y guardar imágenes sin librerías externas complejas:
 - `guardar_png_rgb(nombre, datos, B, H, W)` — guarda batch RGB
 
 Usa las librerías de una sola cabecera `stb_image.h` y `stb_image_write.h`.
+
