@@ -1,3 +1,23 @@
+## Ejecutar en Google Colab
+
+Colab usa Linux, asi que no puede ejecutar directamente `pipeline.exe` generado en Windows. Compila el proyecto dentro de Colab y ejecuta el binario Linux `pipeline`:
+
+```bash
+!git clone <URL_DEL_REPOSITORIO>
+%cd proyecto_gpu
+!make
+!./pipeline
+```
+
+Si ya subiste la carpeta manualmente a Colab, entra a la carpeta del proyecto y ejecuta:
+
+```bash
+!make
+!./pipeline
+```
+
+Los resultados se guardan en `resultados/`. Asegurate de que el runtime de Colab tenga GPU activada: `Entorno de ejecucion > Cambiar tipo de entorno de ejecucion > T4 GPU`.
+
 ### Kernel 1: Escala de grises
 
 Este kernel convierte un batch de imágenes RGB (4D: B×3×H×W) a escala de grises (3D: B×H×W). 
