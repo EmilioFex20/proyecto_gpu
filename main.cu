@@ -12,6 +12,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <errno.h>
 #include <sys/stat.h>
 #ifdef _WIN32
@@ -108,6 +109,97 @@ void crear_directorio_si_no_existe(const char* ruta) {
     }
 }
 
+double ejecutar_pipeline_cpu_equivalente(const std::vector<float>& entrada,
+                                         int B, int H, int W,
+                                         float *checksum_rmse) {
+    const int total = H * W;
+    std::vector<float> referencia(total);
+    std::vector<float> grises((size_t)B * total);
+    std::vector<float> bordes((size_t)B * total, 0.0f);
+    std::vector<float> maximos(B, 0.0f);
+    std::vector<float> normalizado((size_t)B * total);
+    std::vector<float> rmse(B);
+
+    auto inicio = std::chrono::high_resolution_clock::now();
+
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            int i = y * W + x;
+            referencia[i] =
+                0.2989f * entrada[0 * H * W + i] +
+                0.5870f * entrada[1 * H * W + i] +
+                0.1140f * entrada[2 * H * W + i];
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base_rgb = b * 3 * H * W;
+        int base = b * total;
+        for (int y = 0; y < H; y++) {
+            for (int x = 0; x < W; x++) {
+                int i = y * W + x;
+                grises[base + i] =
+                    0.2989f * entrada[base_rgb + 0 * H * W + i] +
+                    0.5870f * entrada[base_rgb + 1 * H * W + i] +
+                    0.1140f * entrada[base_rgb + 2 * H * W + i];
+            }
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        for (int y = 1; y < H - 1; y++) {
+            for (int x = 1; x < W - 1; x++) {
+                int i = y * W + x;
+                float Gx =
+                    -grises[base + (y - 1) * W + (x - 1)] + grises[base + (y - 1) * W + (x + 1)] +
+                    -2.0f * grises[base + y * W + (x - 1)] + 2.0f * grises[base + y * W + (x + 1)] +
+                    -grises[base + (y + 1) * W + (x - 1)] + grises[base + (y + 1) * W + (x + 1)];
+
+                float Gy =
+                    -grises[base + (y - 1) * W + (x - 1)] - 2.0f * grises[base + (y - 1) * W + x] - grises[base + (y - 1) * W + (x + 1)] +
+                    grises[base + (y + 1) * W + (x - 1)] + 2.0f * grises[base + (y + 1) * W + x] + grises[base + (y + 1) * W + (x + 1)];
+
+                bordes[base + i] = sqrtf(Gx * Gx + Gy * Gy);
+            }
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        float maximo = 0.0f;
+        for (int i = 0; i < total; i++) {
+            maximo = fmaxf(maximo, bordes[base + i]);
+        }
+        maximos[b] = maximo;
+
+        for (int i = 0; i < total; i++) {
+            normalizado[base + i] = maximo > 0.0f ? bordes[base + i] / maximo : 0.0f;
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        double suma = 0.0;
+        for (int i = 0; i < total; i++) {
+            double diff = (double)normalizado[base + i] - (double)referencia[i];
+            suma += diff * diff;
+        }
+        rmse[b] = sqrtf((float)(suma / total));
+    }
+
+    auto fin = std::chrono::high_resolution_clock::now();
+
+    float checksum = 0.0f;
+    for (int b = 0; b < B; b++) {
+        checksum += rmse[b];
+    }
+    *checksum_rmse = checksum;
+
+    std::chrono::duration<double, std::milli> duracion = fin - inicio;
+    return duracion.count();
+}
+
 int main() {
     // -------------------
     // Parámetros de prueba
@@ -147,7 +239,15 @@ int main() {
                     h_batch[i*3*H*W + c*H*W + y*W + x] = img[c*H*W + y*W + x];
         free(img);
     }
-    printf("Batch copiado a GPU\n");
+    printf("Batch cargado en CPU\n");
+
+    float checksum_cpu = 0.0f;
+    printf("Ejecutando implementación CPU equivalente\n");
+    double tiempo_cpu_ms = ejecutar_pipeline_cpu_equivalente(h_batch, B, H, W, &checksum_cpu);
+    printf("Tiempo CPU equivalente: %.3f ms\n", tiempo_cpu_ms);
+    if (checksum_cpu < 0.0f) {
+        printf("Checksum CPU: %.6f\n", checksum_cpu);
+    }
     // ------------------------------------
     // Reservar memoria GPU
     // ------------------------------------
@@ -164,13 +264,35 @@ int main() {
 
     printf("Memoria en GPU reservada\n");
 
+    TimerGPU timer;
+    TimerGPU timer_total;
+    iniciar_timer(&timer);
+    iniciar_timer(&timer_total);
+
+    float h2d_ms = 0.0f;
+    float d2h_ms = 0.0f;
+    float referencia_ms = 0.0f;
+    float kernel1_ms = 0.0f;
+    float kernel2_ms = 0.0f;
+    float kernel3_ms = 0.0f;
+    float kernel4_ms = 0.0f;
+    float tiempo_gpu_total_ms = 0.0f;
+
+    iniciar_timer_event(&timer_total);
+
     // Copiar batch a GPU
+    printf("Copiando batch a GPU\n");
+    iniciar_timer_event(&timer);
     CUDA_CHECK(cudaMemcpy(d_entrada, h_batch.data(), B*3*H*W*sizeof(float), cudaMemcpyHostToDevice));
+    h2d_ms = detener_timer_event(&timer, "Transferencia H→D");
+    printf("Batch copiado a GPU\n");
 
     // Preparar referencia (ejemplo: primera imagen en gris)
+    iniciar_timer_event(&timer);
     escala_grises<<<dim3((W+15)/16,(H+15)/16), dim3(16,16)>>>(d_entrada, d_referencia, 1, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
+    referencia_ms = detener_timer_event(&timer, NULL);
 
     // Grid y block
     dim3 bloque(16,16);
@@ -179,9 +301,6 @@ int main() {
     // ------------------------------------
     // Ejecutar kernels
     // ------------------------------------
-    TimerGPU timer;
-    iniciar_timer(&timer);
-
     // Kernel 1: Grises
     
     printf("Ejecutando kernel 1 - Grises\n");
@@ -189,7 +308,7 @@ int main() {
     escala_grises<<<grid, bloque>>>(d_entrada, d_grises, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 1 - Grises");
+    kernel1_ms = detener_timer_event(&timer, "Kernel 1 - Grises");
 
     // Kernel 2: Bordes Sobel
     printf("Ejecutando kernel 2 - Bordes\n");
@@ -198,7 +317,7 @@ int main() {
     detectar_bordes<<<grid, bloque>>>(d_grises, d_bordes, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 2 - Bordes");
+    kernel2_ms = detener_timer_event(&timer, "Kernel 2 - Bordes");
 
     // Kernel 3: Normalización
     printf("Ejecutando kernel 3 - Normalización\n");
@@ -209,7 +328,7 @@ int main() {
     normalizar<<<grid, bloque>>>(d_bordes, d_maximos, d_normalizado, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 3 - Normalización");
+    kernel3_ms = detener_timer_event(&timer, "Kernel 3 - Normalización");
 
     // Kernel 4: RMSE
     printf("Ejecutando kernel 4 - RMSE\n");
@@ -217,9 +336,7 @@ int main() {
     calcular_rmse<<<B, 256, 256*sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 4 - RMSE");
-
-    detener_timer(&timer);
+    kernel4_ms = detener_timer_event(&timer, "Kernel 4 - RMSE");
 
     // ------------------------------------
     // Copiar resultados a CPU
@@ -231,12 +348,26 @@ int main() {
 
     printf("Copiando resultados a CPU\n");
 
+    iniciar_timer_event(&timer);
     CUDA_CHECK(cudaMemcpy(h_grises, d_grises, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_bordes, d_bordes, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_rmse, d_rmse, B*sizeof(float), cudaMemcpyDeviceToHost));
+    d2h_ms = detener_timer_event(&timer, "Transferencia D→H");
+    tiempo_gpu_total_ms = detener_timer_event(&timer_total, NULL);
 
     printf("Resultados copiados a CPU\n");
+    printf("Tiempo total del pipeline: %.3f ms\n", tiempo_gpu_total_ms);
+    printf("Tiempo de las transferencias H→D y D→H: %.3f ms (H→D: %.3f ms, D→H: %.3f ms)\n",
+           h2d_ms + d2h_ms, h2d_ms, d2h_ms);
+    printf("Speedup del pipeline completo vs implementación CPU equivalente: %.2fx\n",
+           tiempo_gpu_total_ms > 0.0f ? tiempo_cpu_ms / tiempo_gpu_total_ms : 0.0);
+    printf("Tiempo extra preparando referencia GPU: %.3f ms\n", referencia_ms);
+    printf("Tiempo total de kernels principales: %.3f ms\n",
+           kernel1_ms + kernel2_ms + kernel3_ms + kernel4_ms);
+
+    detener_timer(&timer);
+    detener_timer(&timer_total);
 
     // ------------------------------------
     // Guardar imágenes

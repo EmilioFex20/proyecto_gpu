@@ -14,12 +14,15 @@ void iniciar_timer_event(TimerGPU *t) {
     cudaEventRecord(t->start, 0);
 }
 
-void detener_timer_event(TimerGPU *t, const char *nombre) {
+float detener_timer_event(TimerGPU *t, const char *nombre) {
     cudaEventRecord(t->stop, 0);
     cudaEventSynchronize(t->stop);
     float ms;
     cudaEventElapsedTime(&ms, t->start, t->stop);
-    printf("%s: %.3f ms\n", nombre, ms);
+    if (nombre != NULL) {
+        printf("%s: %.3f ms\n", nombre, ms);
+    }
+    return ms;
 }
 
 void detener_timer(TimerGPU *t) {

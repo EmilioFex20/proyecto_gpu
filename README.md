@@ -1,22 +1,9 @@
-## Ejecutar en Google Colab
+## Equipo:
 
-Colab usa Linux, asi que no puede ejecutar directamente `pipeline.exe` generado en Windows. Compila el proyecto dentro de Colab y ejecuta el binario Linux `pipeline`:
-
-```bash
-!git clone <URL_DEL_REPOSITORIO>
-%cd proyecto_gpu
-!make
-!./pipeline
-```
-
-Si ya subiste la carpeta manualmente a Colab, entra a la carpeta del proyecto y ejecuta:
-
-```bash
-!make
-!./pipeline
-```
-
-Los resultados se guardan en `resultados/`. Asegurate de que el runtime de Colab tenga GPU activada: `Entorno de ejecucion > Cambiar tipo de entorno de ejecucion > T4 GPU`.
+## - Emilio Fernández Pouget
+## - Derek André Beltrán Arguelles 
+## - Gustavo Abraham Flores Galindo
+## - Josecarlo Porchas López
 
 ### Kernel 1: Escala de grises
 
@@ -109,3 +96,24 @@ Funciones para cargar y guardar imágenes sin librerías externas complejas:
 - `guardar_png_rgb(nombre, datos, B, H, W)` — guarda batch RGB
 
 Usa las librerías de una sola cabecera `stb_image.h` y `stb_image_write.h`.
+
+## Ejecutar en Google Colab
+
+Colab usa Linux, asi que no puede ejecutar directamente `pipeline.exe` generado en Windows. Compila el proyecto dentro de Colab y ejecuta el binario Linux `pipeline`:
+
+```bash
+!git clone <URL_DEL_REPOSITORIO>
+%cd proyecto_gpu
+!make
+!./pipeline
+```
+
+Si ya subiste la carpeta manualmente a Colab, entra a la carpeta del proyecto y ejecuta:
+
+```bash
+!make
+!./pipeline
+```
+
+Los resultados se guardan en `resultados/`. Asegurate de que el runtime de Colab tenga GPU activada: `Entorno de ejecucion > Cambiar tipo de entorno de ejecucion > T4 GPU`.
+
