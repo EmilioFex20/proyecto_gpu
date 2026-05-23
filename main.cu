@@ -361,32 +361,43 @@ int main() {
     // Guardar imágenes
     // ------------------------------------
     for (int i = 0; i < B; i++) {
+        char nombre_original[128];
+        char nombre_grises[128];
+        char nombre_bordes[128];
+        char nombre_normalizada[128];
+
+        snprintf(nombre_original, sizeof(nombre_original), "resultados/imagen_%02d_original.png", i);
+        snprintf(nombre_grises, sizeof(nombre_grises), "resultados/imagen_%02d_grises.png", i);
+        snprintf(nombre_bordes, sizeof(nombre_bordes), "resultados/imagen_%02d_bordes.png", i);
+        snprintf(nombre_normalizada, sizeof(nombre_normalizada), "resultados/imagen_%02d_normalizada.png", i);
+
         // Original RGB
         guardar_png_rgb(
-            ("resultados/imagen_" + std::to_string(i) + "_original.png").c_str(),
+            nombre_original,
             &h_batch[i*3*H*W], 1, H, W
         );
 
         // Grises
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_grises.png").c_str(),
+            nombre_grises,
             &h_grises[i*H*W], H, W
         );
 
         // Bordes
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_bordes.png").c_str(),
+            nombre_bordes,
             &h_bordes[i*H*W], H, W
         );
 
         // Normalizado
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_normalizada.png").c_str(),
+            nombre_normalizada,
             &h_normalizado[i*H*W], H, W
         );
     }
 
-    printf("Imágenes guardadas\n");
+    printf("Imágenes guardadas: %d originales, %d grises, %d bordes, %d normalizadas (%d PNG en total)\n",
+           B, B, B, B, B * 4);
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
     for (int i = 0; i < B; i++) fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
     fclose(f);
