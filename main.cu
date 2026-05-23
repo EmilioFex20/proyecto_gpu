@@ -240,14 +240,6 @@ int main() {
         free(img);
     }
     printf("Batch cargado en CPU\n");
-
-    float checksum_cpu = 0.0f;
-    printf("Ejecutando implementación CPU equivalente\n");
-    double tiempo_cpu_ms = ejecutar_pipeline_cpu_equivalente(h_batch, B, H, W, &checksum_cpu);
-    printf("Tiempo CPU equivalente (4 etapas): %.3f ms\n", tiempo_cpu_ms);
-    if (checksum_cpu < 0.0f) {
-        printf("Checksum CPU: %.6f\n", checksum_cpu);
-    }
     // ------------------------------------
     // Reservar memoria GPU
     // ------------------------------------
@@ -274,6 +266,7 @@ int main() {
     float kernel3_ms = 0.0f;
     float kernel4_ms = 0.0f;
     float tiempo_pipeline_ms = 0.0f;
+    double tiempo_cpu_ms = 0.0;
 
     // Copiar batch a GPU
     printf("Copiando batch a GPU\n");
@@ -353,6 +346,12 @@ int main() {
     printf("Tiempo total del pipeline: %.3f ms\n", tiempo_pipeline_ms);
     printf("Tiempo de las transferencias H→D y D→H: %.3f ms (H→D: %.3f ms, D→H: %.3f ms)\n",
            h2d_ms + d2h_ms, h2d_ms, d2h_ms);
+    printf("Ejecutando implementación CPU equivalente\n");
+    float checksum_cpu = 0.0f;
+    tiempo_cpu_ms = ejecutar_pipeline_cpu_equivalente(h_batch, B, H, W, &checksum_cpu);
+    volatile float checksum_guard = checksum_cpu;
+    (void)checksum_guard;
+    printf("Tiempo CPU equivalente (4 etapas): %.3f ms\n", tiempo_cpu_ms);
     printf("Speedup de kernels GPU vs implementación CPU equivalente: %.2fx\n",
            tiempo_pipeline_ms > 0.0f ? tiempo_cpu_ms / tiempo_pipeline_ms : 0.0);
 
