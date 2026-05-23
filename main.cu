@@ -120,8 +120,6 @@ double ejecutar_pipeline_cpu_equivalente(const std::vector<float>& entrada,
     std::vector<float> normalizado((size_t)B * total);
     std::vector<float> rmse(B);
 
-    auto inicio = std::chrono::high_resolution_clock::now();
-
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             int i = y * W + x;
@@ -131,6 +129,8 @@ double ejecutar_pipeline_cpu_equivalente(const std::vector<float>& entrada,
                 0.1140f * entrada[2 * H * W + i];
         }
     }
+
+    auto inicio = std::chrono::high_resolution_clock::now();
 
     for (int b = 0; b < B; b++) {
         int base_rgb = b * 3 * H * W;
@@ -244,7 +244,7 @@ int main() {
     float checksum_cpu = 0.0f;
     printf("Ejecutando implementación CPU equivalente\n");
     double tiempo_cpu_ms = ejecutar_pipeline_cpu_equivalente(h_batch, B, H, W, &checksum_cpu);
-    printf("Tiempo CPU equivalente: %.3f ms\n", tiempo_cpu_ms);
+    printf("Tiempo CPU equivalente (4 etapas): %.3f ms\n", tiempo_cpu_ms);
     if (checksum_cpu < 0.0f) {
         printf("Checksum CPU: %.6f\n", checksum_cpu);
     }
@@ -269,7 +269,6 @@ int main() {
 
     float h2d_ms = 0.0f;
     float d2h_ms = 0.0f;
-    float referencia_ms = 0.0f;
     float kernel1_ms = 0.0f;
     float kernel2_ms = 0.0f;
     float kernel3_ms = 0.0f;
@@ -284,11 +283,9 @@ int main() {
     printf("Batch copiado a GPU\n");
 
     // Preparar referencia (ejemplo: primera imagen en gris)
-    iniciar_timer_event(&timer);
     escala_grises<<<dim3((W+15)/16,(H+15)/16), dim3(16,16)>>>(d_entrada, d_referencia, 1, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    referencia_ms = detener_timer_event(&timer, NULL);
 
     // Grid y block
     dim3 bloque(16,16);
@@ -356,9 +353,8 @@ int main() {
     printf("Tiempo total del pipeline: %.3f ms\n", tiempo_pipeline_ms);
     printf("Tiempo de las transferencias H→D y D→H: %.3f ms (H→D: %.3f ms, D→H: %.3f ms)\n",
            h2d_ms + d2h_ms, h2d_ms, d2h_ms);
-    printf("Speedup del pipeline completo vs implementación CPU equivalente: %.2fx\n",
+    printf("Speedup de kernels GPU vs implementación CPU equivalente: %.2fx\n",
            tiempo_pipeline_ms > 0.0f ? tiempo_cpu_ms / tiempo_pipeline_ms : 0.0);
-    printf("Tiempo extra preparando referencia GPU: %.3f ms\n", referencia_ms);
 
     detener_timer(&timer);
 
