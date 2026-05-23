@@ -21,7 +21,8 @@ Paso B: kernel de división  → divide cada píxel entre el max de su imagen
 // Paso A: kernel de reducción para obtener máximo por imagen
 __global__ void max_por_imagen(float *entrada, float *maximos, int B, int H, int W) {
     extern __shared__ float sdata[];
-    int tid = threadIdx.x;
+    int tid = threadIdx.y * blockDim.x + threadIdx.x;
+    int threads = blockDim.x * blockDim.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int fila = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -35,7 +36,7 @@ __global__ void max_por_imagen(float *entrada, float *maximos, int B, int H, int
         __syncthreads();
 
         // Reducción en shared memory
-        for (int s = blockDim.x/2; s > 0; s>>=1) {
+        for (int s = threads / 2; s > 0; s >>= 1) {
             if (tid < s) sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
             __syncthreads();
         }

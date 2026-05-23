@@ -4,16 +4,11 @@
 #include <math.h>
 #define NOMINMAX
 #include <windows.h>
-// #include "kernels/grises.cu"
-// #include "kernels/bordes.cu"
-// #include "kernels/normalizar.cu"
-// #include "kernels/mse.cu"
-// #include "utils/imagen.cu"
-// #include "utils/timer.cu"
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <string.h>
 #include "utils/imagen.h"
 #include "utils/timer.h"
 #include "kernels/grises.h"
@@ -25,6 +20,8 @@
     {                                         \
         gpuAssert((ans), __FILE__, __LINE__); \
     }
+#define CUDA_KERNEL_CHECK() CUDA_CHECK(cudaGetLastError())
+
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort = true)
 {
     if (code != cudaSuccess)
@@ -70,120 +67,165 @@ std::vector<std::string> obtener_archivos(const char *carpeta)
         exit(1);
     }
 
-    // Ordenar para asegurar consistencia
     std::sort(archivos.begin(), archivos.end());
     return archivos;
 }
 
 int main()
 {
-    // -------------------
-    // Parámetros de prueba
-    // -------------------
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     const char *carpeta = "imagenes";
+    printf("Buscando imagenes en %s...\n", carpeta);
     std::vector<std::string> archivos = obtener_archivos(carpeta);
-    int B = archivos.size();
+    int B = (int)archivos.size();
 
-    int H, W, C;
-    float *h_batch = (float *)malloc(B * 3 * 256 * 256 * sizeof(float));
-
-    // Cargar imágenes al batch
-    for (int i = 0; i < B; i++)
+    if (B == 0)
     {
-        float *img = cargar_png_rgb(archivos[i].c_str(), &H, &W);
-        for (int c = 0; c < 3; c++)
-            for (int y = 0; y < H; y++)
-                for (int x = 0; x < W; x++)
-                    h_batch[i * 3 * H * W + c * H * W + y * W + x] = img[c * H * W + y * W + x];
+        fprintf(stderr, "No se encontraron imagenes .png o .jpg en %s\n", carpeta);
+        return 1;
+    }
+
+    printf("Encontradas %d imagenes.\n", B);
+
+    int H = 0, W = 0;
+    printf("Cargando %s...\n", archivos[0].c_str());
+    float *primera_img = cargar_png_rgb(archivos[0].c_str(), &H, &W);
+
+    size_t pixeles = (size_t)H * (size_t)W;
+    size_t bytes_rgb = 3 * pixeles * sizeof(float);
+    size_t bytes_batch_rgb = (size_t)B * bytes_rgb;
+    size_t bytes_batch_gris = (size_t)B * pixeles * sizeof(float);
+
+    float *h_batch = (float *)malloc(bytes_batch_rgb);
+    if (!h_batch)
+    {
+        fprintf(stderr, "No se pudo reservar memoria CPU para el batch.\n");
+        free(primera_img);
+        return 1;
+    }
+
+    memcpy(h_batch, primera_img, bytes_rgb);
+    free(primera_img);
+
+    for (int i = 1; i < B; i++)
+    {
+        int h_img = 0, w_img = 0;
+        printf("Cargando %s...\n", archivos[i].c_str());
+        float *img = cargar_png_rgb(archivos[i].c_str(), &h_img, &w_img);
+        if (h_img != H || w_img != W)
+        {
+            fprintf(stderr, "Dimension incompatible en %s: %dx%d, se esperaba %dx%d\n",
+                    archivos[i].c_str(), w_img, h_img, W, H);
+            free(img);
+            free(h_batch);
+            return 1;
+        }
+
+        memcpy(h_batch + (size_t)i * 3 * pixeles, img, bytes_rgb);
         free(img);
     }
 
-    // ------------------------------------
-    // Reservar memoria GPU
-    // ------------------------------------
+    printf("Batch listo: B=%d, W=%d, H=%d\n", B, W, H);
+
+    if (!CreateDirectoryA("resultados", NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        fprintf(stderr, "No se pudo crear la carpeta resultados (error Windows %lu)\n", GetLastError());
+        free(h_batch);
+        return 1;
+    }
+
+    printf("Reservando memoria GPU...\n");
     float *d_entrada, *d_grises, *d_bordes, *d_normalizado;
     float *d_maximos, *d_rmse, *d_referencia;
-    CUDA_CHECK(cudaMalloc(&d_entrada, B * 3 * H * W * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_grises, B * H * W * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_bordes, B * H * W * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_normalizado, B * H * W * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_entrada, bytes_batch_rgb));
+    CUDA_CHECK(cudaMalloc(&d_grises, bytes_batch_gris));
+    CUDA_CHECK(cudaMalloc(&d_bordes, bytes_batch_gris));
+    CUDA_CHECK(cudaMalloc(&d_normalizado, bytes_batch_gris));
     CUDA_CHECK(cudaMalloc(&d_maximos, B * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_rmse, B * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_referencia, H * W * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_referencia, pixeles * sizeof(float)));
 
-    // Copiar batch a GPU
-    CUDA_CHECK(cudaMemcpy(d_entrada, h_batch, B * 3 * H * W * sizeof(float), cudaMemcpyHostToDevice));
+    printf("Copiando batch a GPU...\n");
+    CUDA_CHECK(cudaMemcpy(d_entrada, h_batch, bytes_batch_rgb, cudaMemcpyHostToDevice));
 
-    // Preparar referencia (ejemplo: primera imagen en gris)
-    escala_grises<<<dim3((W + 15) / 16, (H + 15) / 16), dim3(16, 16)>>>(d_entrada, d_referencia, 1, H, W);
-
-    // Grid y block
     dim3 bloque(16, 16);
-    dim3 grid((W + 15) / 16, (H + 15) / 16);
+    dim3 grid((W + bloque.x - 1) / bloque.x, (H + bloque.y - 1) / bloque.y);
 
-    // ------------------------------------
-    // Ejecutar kernels
-    // ------------------------------------
+    printf("Preparando referencia...\n");
+    escala_grises<<<grid, bloque>>>(d_entrada, d_referencia, 1, H, W);
+    CUDA_KERNEL_CHECK();
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    printf("Ejecutando kernels...\n");
     TimerGPU timer;
     iniciar_timer(&timer);
 
-    // Kernel 1: Grises
     iniciar_timer_event(&timer);
     escala_grises<<<grid, bloque>>>(d_entrada, d_grises, B, H, W);
+    CUDA_KERNEL_CHECK();
     CUDA_CHECK(cudaDeviceSynchronize());
     detener_timer_event(&timer, "Kernel 1 - Grises");
 
-    // Kernel 2: Bordes Sobel
     iniciar_timer_event(&timer);
     detectar_bordes<<<grid, bloque>>>(d_grises, d_bordes, B, H, W);
+    CUDA_KERNEL_CHECK();
     CUDA_CHECK(cudaDeviceSynchronize());
     detener_timer_event(&timer, "Kernel 2 - Bordes");
 
-    // Kernel 3: Normalización
     iniciar_timer_event(&timer);
     CUDA_CHECK(cudaMemset(d_maximos, 0, B * sizeof(float)));
     max_por_imagen<<<grid, bloque, bloque.x * bloque.y * sizeof(float)>>>(d_bordes, d_maximos, B, H, W);
+    CUDA_KERNEL_CHECK();
     normalizar<<<grid, bloque>>>(d_bordes, d_maximos, d_normalizado, B, H, W);
+    CUDA_KERNEL_CHECK();
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 3 - Normalización");
+    detener_timer_event(&timer, "Kernel 3 - Normalizacion");
 
-    // Kernel 4: RMSE
     iniciar_timer_event(&timer);
-    calcular_rmse<<<1, H * W, H * W * sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
+    const int hilos_rmse = 256;
+    calcular_rmse<<<B, hilos_rmse, hilos_rmse * sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
+    CUDA_KERNEL_CHECK();
     CUDA_CHECK(cudaDeviceSynchronize());
     detener_timer_event(&timer, "Kernel 4 - RMSE");
 
     detener_timer(&timer);
 
-    // ------------------------------------
-    // Copiar resultados a CPU
-    // ------------------------------------
-    float *h_grises = (float *)malloc(B * H * W * sizeof(float));
-    float *h_bordes = (float *)malloc(B * H * W * sizeof(float));
-    float *h_normalizado = (float *)malloc(B * H * W * sizeof(float));
+    printf("Copiando resultados a CPU...\n");
+    float *h_grises = (float *)malloc(bytes_batch_gris);
+    float *h_bordes = (float *)malloc(bytes_batch_gris);
+    float *h_normalizado = (float *)malloc(bytes_batch_gris);
     float *h_rmse = (float *)malloc(B * sizeof(float));
 
-    CUDA_CHECK(cudaMemcpy(h_grises, d_grises, B * H * W * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_bordes, d_bordes, B * H * W * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, B * H * W * sizeof(float), cudaMemcpyDeviceToHost));
+    if (!h_grises || !h_bordes || !h_normalizado || !h_rmse)
+    {
+        fprintf(stderr, "No se pudo reservar memoria CPU para resultados.\n");
+        return 1;
+    }
+
+    CUDA_CHECK(cudaMemcpy(h_grises, d_grises, bytes_batch_gris, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_bordes, d_bordes, bytes_batch_gris, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, bytes_batch_gris, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_rmse, d_rmse, B * sizeof(float), cudaMemcpyDeviceToHost));
 
-    // ------------------------------------
-    // Guardar imágenes
-    // ------------------------------------
+    printf("Guardando resultados...\n");
     guardar_png_rgb("resultados/imagen_00_original.png", h_batch, 1, H, W);
     guardar_png_gris("resultados/imagen_00_grises.png", h_grises, H, W);
     guardar_png_gris("resultados/imagen_00_bordes.png", h_bordes, H, W);
     guardar_png_gris("resultados/imagen_00_normalizada.png", h_normalizado, H, W);
 
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
+    if (!f)
+    {
+        fprintf(stderr, "No se pudo abrir resultados/rmse_por_imagen.txt para escritura\n");
+        return 1;
+    }
+
     for (int i = 0; i < B; i++)
         fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
     fclose(f);
 
-    // ------------------------------------
-    // Liberar memoria
-    // ------------------------------------
     free(h_batch);
     free(h_grises);
     free(h_bordes);
@@ -197,5 +239,6 @@ int main()
     CUDA_CHECK(cudaFree(d_rmse));
     CUDA_CHECK(cudaFree(d_referencia));
 
+    printf("Pipeline terminado. Resultados guardados en resultados/.\n");
     return 0;
 }
