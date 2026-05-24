@@ -275,12 +275,15 @@ int main() {
     h2d_ms = detener_timer_event(&timer, "Transferencia H→D");
     printf("Batch copiado a GPU\n");
 
-    // Preparar referencia (ejemplo: primera imagen en gris)
+    // Preparar referencia (ejemplo: primera imagen en gris). Se usa 16x16 = 256 hilos,
+    // múltiplo de 32 (tamaño de warp), adecuado para recorrer imágenes 2D por píxel.
     escala_grises<<<dim3((W+15)/16,(H+15)/16), dim3(16,16)>>>(d_entrada, d_referencia, 1, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
     // Grid y block
+    // Bloque 16x16 = 256 hilos: múltiplo de 32, con buena ocupación para kernels 2D
+    // donde cada hilo procesa un píxel y el batch se recorre internamente.
     dim3 bloque(16,16);
     dim3 grid((W+15)/16, (H+15)/16);
 
@@ -319,6 +322,7 @@ int main() {
     // Kernel 4: RMSE
     printf("Ejecutando kernel 4 - RMSE\n");
     iniciar_timer_event(&timer);
+    // 256 hilos por bloque: múltiplo de 32 y adecuado para reducción en memoria compartida.
     calcular_rmse<<<B, 256, 256*sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
