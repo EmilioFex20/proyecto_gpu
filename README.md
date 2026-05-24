@@ -53,21 +53,55 @@ Este kernel compara cada imagen normalizada del batch contra una imagen de refer
 
 ## Main.cu — Orquestación del pipeline
 
-Este archivo coordina la ejecución completa del pipeline:
+`main.cu` coordina la ejecución completa del programa, desde la carga del batch hasta el guardado de resultados:
 
-1. Carga un batch de imágenes RGB desde `imagenes/` usando la función `cargar_png_rgb` de `utils/imagen.cu`.
-2. Copia los datos a GPU (Host → Device).
-3. Prepara una imagen de referencia en GPU (para RMSE).
-4. Ejecuta los 4 kernels en orden:
-   - **Kernel 1:** Escala de grises
-   - **Kernel 2:** Bordes Sobel
-   - **Kernel 3:** Normalización
-   - **Kernel 4:** RMSE vs referencia
-5. Mide el tiempo de ejecución de cada kernel y del pipeline completo usando `utils/timer.cu`.
-6. Copia los resultados de GPU a CPU y guarda:
-   - Imágenes: `imagen_00_original.png`, `imagen_00_grises.png`, `imagen_00_bordes.png`, `imagen_00_normalizada.png`
-   - Archivo de RMSE: `rmse_por_imagen.txt`
-7. Libera toda la memoria GPU y CPU utilizada.
+1. Lee todas las imágenes de entrada desde la carpeta `imagenes/` usando `cargar_png_rgb` de `utils/imagen.cu`.
+2. Valida que todas las imágenes tengan las mismas dimensiones y arma un batch RGB en formato `B x 3 x H x W`.
+3. Crea la carpeta `resultados/` si no existe.
+4. Reserva memoria en GPU para la entrada, las salidas intermedias, los máximos por imagen, la referencia y el vector de RMSE.
+5. Copia el batch completo de CPU a GPU y mide la transferencia `H→D`.
+6. Prepara en GPU una imagen de referencia en escala de grises a partir de la primera imagen del batch.
+7. Ejecuta los cuatro kernels principales:
+   - **Kernel 1:** conversión a escala de grises.
+   - **Kernel 2:** detección de bordes con Sobel.
+   - **Kernel 3:** normalización por imagen.
+   - **Kernel 4:** cálculo de RMSE contra la referencia.
+8. Mide el tiempo individual de cada kernel con `cudaEvent` mediante `utils/timer.cu`.
+9. Calcula el **tiempo total del pipeline** como la suma de los cuatro kernels, sin incluir transferencias.
+10. Copia a CPU las salidas de grises, bordes, normalización y RMSE, midiendo también la transferencia `D→H`.
+11. Ejecuta una implementación CPU equivalente de las mismas cuatro etapas para comparar contra los kernels GPU.
+12. Reporta el speedup como `tiempo CPU equivalente / tiempo total de kernels GPU`.
+13. Guarda en `resultados/` las salidas de todas las imágenes del batch:
+   - `imagen_00_original.png`, `imagen_00_grises.png`, `imagen_00_bordes.png`, `imagen_00_normalizada.png`
+   - ...
+   - `imagen_15_original.png`, `imagen_15_grises.png`, `imagen_15_bordes.png`, `imagen_15_normalizada.png`
+14. Guarda los valores del Kernel 4 en `resultados/rmse_por_imagen.txt`.
+15. Libera la memoria reservada en CPU y GPU.
+
+
+# Resultados
+
+![Verificación visual del pipeline](verificacion_pipeline.png)
+
+### Tiempos medidos en GPU de Colab
+
+| Métrica | Tiempo |
+|---|---:|
+| Transferencia H→D | 10.942 ms |
+| Kernel 1 - Grises | 0.295 ms |
+| Kernel 2 - Bordes | 0.432 ms |
+| Kernel 3 - Normalización | 0.773 ms |
+| Kernel 4 - RMSE | 0.821 ms |
+| Tiempo total del pipeline | 2.321 ms |
+| Transferencia D→H | 32.275 ms |
+| Transferencias H→D + D→H | 43.217 ms |
+| Tiempo CPU equivalente (4 etapas) | 45.705 ms |
+| Speedup de kernels GPU vs CPU | 19.69x |
+
+# Captura del RMSE
+
+![Verificación visual del pipeline](captura_rmse.png)
+
 
 **Notas:**  
 - Todo el procesamiento se mantiene en GPU entre kernels.
@@ -108,7 +142,8 @@ Colab usa Linux, asi que no puede ejecutar directamente `pipeline.exe` generado 
 !./pipeline
 ```
 
-Si ya subiste la carpeta manualmente a Colab, entra a la carpeta del proyecto y ejecuta:
+Si ya subiste la carpeta manualmente a Colab, entra a la carpeta del proyecto y ejecuta:icacion_pipeline.png)
+
 
 ```bash
 !make
