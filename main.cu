@@ -12,6 +12,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <errno.h>
 #include <sys/stat.h>
 #ifdef _WIN32
@@ -108,6 +109,97 @@ void crear_directorio_si_no_existe(const char* ruta) {
     }
 }
 
+double ejecutar_pipeline_cpu_equivalente(const std::vector<float>& entrada,
+                                         int B, int H, int W,
+                                         float *checksum_rmse) {
+    const int total = H * W;
+    std::vector<float> referencia(total);
+    std::vector<float> grises((size_t)B * total);
+    std::vector<float> bordes((size_t)B * total, 0.0f);
+    std::vector<float> maximos(B, 0.0f);
+    std::vector<float> normalizado((size_t)B * total);
+    std::vector<float> rmse(B);
+
+    for (int y = 0; y < H; y++) {
+        for (int x = 0; x < W; x++) {
+            int i = y * W + x;
+            referencia[i] =
+                0.2989f * entrada[0 * H * W + i] +
+                0.5870f * entrada[1 * H * W + i] +
+                0.1140f * entrada[2 * H * W + i];
+        }
+    }
+
+    auto inicio = std::chrono::high_resolution_clock::now();
+
+    for (int b = 0; b < B; b++) {
+        int base_rgb = b * 3 * H * W;
+        int base = b * total;
+        for (int y = 0; y < H; y++) {
+            for (int x = 0; x < W; x++) {
+                int i = y * W + x;
+                grises[base + i] =
+                    0.2989f * entrada[base_rgb + 0 * H * W + i] +
+                    0.5870f * entrada[base_rgb + 1 * H * W + i] +
+                    0.1140f * entrada[base_rgb + 2 * H * W + i];
+            }
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        for (int y = 1; y < H - 1; y++) {
+            for (int x = 1; x < W - 1; x++) {
+                int i = y * W + x;
+                float Gx =
+                    -grises[base + (y - 1) * W + (x - 1)] + grises[base + (y - 1) * W + (x + 1)] +
+                    -2.0f * grises[base + y * W + (x - 1)] + 2.0f * grises[base + y * W + (x + 1)] +
+                    -grises[base + (y + 1) * W + (x - 1)] + grises[base + (y + 1) * W + (x + 1)];
+
+                float Gy =
+                    -grises[base + (y - 1) * W + (x - 1)] - 2.0f * grises[base + (y - 1) * W + x] - grises[base + (y - 1) * W + (x + 1)] +
+                    grises[base + (y + 1) * W + (x - 1)] + 2.0f * grises[base + (y + 1) * W + x] + grises[base + (y + 1) * W + (x + 1)];
+
+                bordes[base + i] = sqrtf(Gx * Gx + Gy * Gy);
+            }
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        float maximo = 0.0f;
+        for (int i = 0; i < total; i++) {
+            maximo = fmaxf(maximo, bordes[base + i]);
+        }
+        maximos[b] = maximo;
+
+        for (int i = 0; i < total; i++) {
+            normalizado[base + i] = maximo > 0.0f ? bordes[base + i] / maximo : 0.0f;
+        }
+    }
+
+    for (int b = 0; b < B; b++) {
+        int base = b * total;
+        double suma = 0.0;
+        for (int i = 0; i < total; i++) {
+            double diff = (double)normalizado[base + i] - (double)referencia[i];
+            suma += diff * diff;
+        }
+        rmse[b] = sqrtf((float)(suma / total));
+    }
+
+    auto fin = std::chrono::high_resolution_clock::now();
+
+    float checksum = 0.0f;
+    for (int b = 0; b < B; b++) {
+        checksum += rmse[b];
+    }
+    *checksum_rmse = checksum;
+
+    std::chrono::duration<double, std::milli> duracion = fin - inicio;
+    return duracion.count();
+}
+
 int main() {
     // -------------------
     // Parámetros de prueba
@@ -147,7 +239,7 @@ int main() {
                     h_batch[i*3*H*W + c*H*W + y*W + x] = img[c*H*W + y*W + x];
         free(img);
     }
-    printf("Batch copiado a GPU\n");
+    printf("Batch cargado en CPU\n");
     // ------------------------------------
     // Reservar memoria GPU
     // ------------------------------------
@@ -164,24 +256,40 @@ int main() {
 
     printf("Memoria en GPU reservada\n");
 
-    // Copiar batch a GPU
-    CUDA_CHECK(cudaMemcpy(d_entrada, h_batch.data(), B*3*H*W*sizeof(float), cudaMemcpyHostToDevice));
+    TimerGPU timer;
+    iniciar_timer(&timer);
 
-    // Preparar referencia (ejemplo: primera imagen en gris)
+    float h2d_ms = 0.0f;
+    float d2h_ms = 0.0f;
+    float kernel1_ms = 0.0f;
+    float kernel2_ms = 0.0f;
+    float kernel3_ms = 0.0f;
+    float kernel4_ms = 0.0f;
+    float tiempo_pipeline_ms = 0.0f;
+    double tiempo_cpu_ms = 0.0;
+
+    // Copiar batch a GPU
+    printf("Copiando batch a GPU\n");
+    iniciar_timer_event(&timer);
+    CUDA_CHECK(cudaMemcpy(d_entrada, h_batch.data(), B*3*H*W*sizeof(float), cudaMemcpyHostToDevice));
+    h2d_ms = detener_timer_event(&timer, "Transferencia H→D");
+    printf("Batch copiado a GPU\n");
+
+    // Preparar referencia (ejemplo: primera imagen en gris). Se usa 16x16 = 256 hilos,
+    // múltiplo de 32 (tamaño de warp), adecuado para recorrer imágenes 2D por píxel.
     escala_grises<<<dim3((W+15)/16,(H+15)/16), dim3(16,16)>>>(d_entrada, d_referencia, 1, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
     // Grid y block
+    // Bloque 16x16 = 256 hilos: múltiplo de 32, con buena ocupación para kernels 2D
+    // donde cada hilo procesa un píxel y el batch se recorre internamente.
     dim3 bloque(16,16);
     dim3 grid((W+15)/16, (H+15)/16);
 
     // ------------------------------------
     // Ejecutar kernels
     // ------------------------------------
-    TimerGPU timer;
-    iniciar_timer(&timer);
-
     // Kernel 1: Grises
     
     printf("Ejecutando kernel 1 - Grises\n");
@@ -189,7 +297,7 @@ int main() {
     escala_grises<<<grid, bloque>>>(d_entrada, d_grises, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 1 - Grises");
+    kernel1_ms = detener_timer_event(&timer, "Kernel 1 - Grises");
 
     // Kernel 2: Bordes Sobel
     printf("Ejecutando kernel 2 - Bordes\n");
@@ -198,7 +306,7 @@ int main() {
     detectar_bordes<<<grid, bloque>>>(d_grises, d_bordes, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 2 - Bordes");
+    kernel2_ms = detener_timer_event(&timer, "Kernel 2 - Bordes");
 
     // Kernel 3: Normalización
     printf("Ejecutando kernel 3 - Normalización\n");
@@ -209,17 +317,16 @@ int main() {
     normalizar<<<grid, bloque>>>(d_bordes, d_maximos, d_normalizado, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 3 - Normalización");
+    kernel3_ms = detener_timer_event(&timer, "Kernel 3 - Normalización");
 
     // Kernel 4: RMSE
     printf("Ejecutando kernel 4 - RMSE\n");
     iniciar_timer_event(&timer);
+    // 256 hilos por bloque: múltiplo de 32 y adecuado para reducción en memoria compartida.
     calcular_rmse<<<B, 256, 256*sizeof(float)>>>(d_normalizado, d_referencia, d_rmse, B, H, W);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    detener_timer_event(&timer, "Kernel 4 - RMSE");
-
-    detener_timer(&timer);
+    kernel4_ms = detener_timer_event(&timer, "Kernel 4 - RMSE");
 
     // ------------------------------------
     // Copiar resultados a CPU
@@ -231,43 +338,70 @@ int main() {
 
     printf("Copiando resultados a CPU\n");
 
+    iniciar_timer_event(&timer);
     CUDA_CHECK(cudaMemcpy(h_grises, d_grises, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_bordes, d_bordes, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_normalizado, d_normalizado, B*H*W*sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_rmse, d_rmse, B*sizeof(float), cudaMemcpyDeviceToHost));
+    d2h_ms = detener_timer_event(&timer, "Transferencia D→H");
+    tiempo_pipeline_ms = kernel1_ms + kernel2_ms + kernel3_ms + kernel4_ms;
 
     printf("Resultados copiados a CPU\n");
+    printf("Tiempo total del pipeline: %.3f ms\n", tiempo_pipeline_ms);
+    printf("Tiempo de las transferencias H→D y D→H: %.3f ms (H→D: %.3f ms, D→H: %.3f ms)\n",
+           h2d_ms + d2h_ms, h2d_ms, d2h_ms);
+    printf("Ejecutando implementación CPU equivalente\n");
+    float checksum_cpu = 0.0f;
+    tiempo_cpu_ms = ejecutar_pipeline_cpu_equivalente(h_batch, B, H, W, &checksum_cpu);
+    volatile float checksum_guard = checksum_cpu;
+    (void)checksum_guard;
+    printf("Tiempo CPU equivalente (4 etapas): %.3f ms\n", tiempo_cpu_ms);
+    printf("Speedup de kernels GPU vs implementación CPU equivalente: %.2fx\n",
+           tiempo_pipeline_ms > 0.0f ? tiempo_cpu_ms / tiempo_pipeline_ms : 0.0);
+
+    detener_timer(&timer);
 
     // ------------------------------------
     // Guardar imágenes
     // ------------------------------------
     for (int i = 0; i < B; i++) {
+        char nombre_original[128];
+        char nombre_grises[128];
+        char nombre_bordes[128];
+        char nombre_normalizada[128];
+
+        snprintf(nombre_original, sizeof(nombre_original), "resultados/imagen_%02d_original.png", i);
+        snprintf(nombre_grises, sizeof(nombre_grises), "resultados/imagen_%02d_grises.png", i);
+        snprintf(nombre_bordes, sizeof(nombre_bordes), "resultados/imagen_%02d_bordes.png", i);
+        snprintf(nombre_normalizada, sizeof(nombre_normalizada), "resultados/imagen_%02d_normalizada.png", i);
+
         // Original RGB
         guardar_png_rgb(
-            ("resultados/imagen_" + std::to_string(i) + "_original.png").c_str(),
+            nombre_original,
             &h_batch[i*3*H*W], 1, H, W
         );
 
         // Grises
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_grises.png").c_str(),
+            nombre_grises,
             &h_grises[i*H*W], H, W
         );
 
         // Bordes
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_bordes.png").c_str(),
+            nombre_bordes,
             &h_bordes[i*H*W], H, W
         );
 
         // Normalizado
         guardar_png_gris(
-            ("resultados/imagen_" + std::to_string(i) + "_normalizada.png").c_str(),
+            nombre_normalizada,
             &h_normalizado[i*H*W], H, W
         );
     }
 
-    printf("Imágenes guardadas\n");
+    printf("Imágenes guardadas: %d originales, %d grises, %d bordes, %d normalizadas (%d PNG en total)\n",
+           B, B, B, B, B * 4);
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
     for (int i = 0; i < B; i++) fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
     fclose(f);
