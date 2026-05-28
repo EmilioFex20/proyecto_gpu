@@ -15,10 +15,11 @@
 #include <chrono>
 #include <errno.h>
 #include <sys/stat.h>
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
 #include <direct.h>
 #include <windows.h>
 #else
+#include <dirent.h>
 #endif
 #include "utils/imagen.h"
 #include "utils/timer.h"
@@ -40,7 +41,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 std::vector<std::string> obtener_archivos(const char* carpeta) {
     std::vector<std::string> archivos;
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     std::string patron = std::string(carpeta) + "\\*";
     WIN32_FIND_DATAA datos;
     HANDLE handle = FindFirstFileA(patron.c_str(), &datos);
@@ -97,7 +98,7 @@ std::vector<std::string> obtener_archivos(const char* carpeta) {
 }
 
 void crear_directorio_si_no_existe(const char* ruta) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(_WIN64)
     if (_mkdir(ruta) != 0 && errno != EEXIST) {
 #else
     if (mkdir(ruta, 0755) != 0 && errno != EEXIST) {
