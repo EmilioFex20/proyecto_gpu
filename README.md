@@ -11,7 +11,7 @@ Este kernel convierte un batch de imágenes RGB (4D: B×3×H×W) a escala de gri
 
 - **Entrada:** tensor 4D de floats (RGB)  
 - **Salida:** tensor 3D de floats (grises)  
-- **Grid:** 2D con bloques de 16×16 hilos  
+- **Grid:** 2D con bloques de 16×16 hilos  (256 bloques para imagenes 256x256)
 - **Fórmula usada:** Gris = 0.2989*R + 0.5870*G + 0.1140*B  
 - **Notas:** Cada hilo procesa un píxel (fila, columna) de cada imagen, y un loop interno recorre las imágenes del batch. Se deja en la GPU la salida para pasar al siguiente kernel sin transferencias intermedias a CPU.
 
@@ -71,10 +71,7 @@ Este kernel compara cada imagen normalizada del batch contra una imagen de refer
 10. Copia a CPU las salidas de grises, bordes, normalización y RMSE, midiendo también la transferencia `D→H`.
 11. Ejecuta una implementación CPU equivalente de las mismas cuatro etapas para comparar contra los kernels GPU.
 12. Reporta el speedup como `tiempo CPU equivalente / tiempo total de kernels GPU`.
-13. Guarda en `resultados/` las salidas de todas las imágenes del batch:
-   - `imagen_00_original.png`, `imagen_00_grises.png`, `imagen_00_bordes.png`, `imagen_00_normalizada.png`
-   - ...
-   - `imagen_15_original.png`, `imagen_15_grises.png`, `imagen_15_bordes.png`, `imagen_15_normalizada.png`
+13. Guarda en `resultados/` las salidas de todas las imágenes del batch.
 14. Guarda los valores del Kernel 4 en `resultados/rmse_por_imagen.txt`.
 15. Libera la memoria reservada en CPU y GPU.
 
@@ -83,20 +80,20 @@ Este kernel compara cada imagen normalizada del batch contra una imagen de refer
 
 ![Verificación visual del pipeline](verificacion_pipeline.png)
 
-### Tiempos medidos en GPU de Colab
+### Tiempos medidos en GPU
 
 | Métrica | Tiempo |
 |---|---:|
-| Transferencia H→D | 10.942 ms |
-| Kernel 1 - Grises | 0.295 ms |
-| Kernel 2 - Bordes | 0.432 ms |
-| Kernel 3 - Normalización | 0.773 ms |
-| Kernel 4 - RMSE | 0.821 ms |
-| Tiempo total del pipeline | 2.321 ms |
-| Transferencia D→H | 32.275 ms |
-| Transferencias H→D + D→H | 43.217 ms |
-| Tiempo CPU equivalente (4 etapas) | 45.705 ms |
-| Speedup de kernels GPU vs CPU | 19.69x |
+| Transferencia H→D | 1.608 ms |
+| Kernel 1 - Grises | 0.045 ms |
+| Kernel 2 - Bordes | 0.282 ms |
+| Kernel 3 - Normalización | 0.279 ms |
+| Kernel 4 - RMSE | 0.288 ms |
+| Tiempo total del pipeline | 0.893 ms |
+| Transferencia D→H | 6.719 ms |
+| Transferencias H→D + D→H | 8.326 ms |
+| Tiempo CPU equivalente (4 etapas) | 7.456 ms |
+| Speedup de kernels GPU vs CPU | 8.35x |
 
 # Captura del RMSE
 
