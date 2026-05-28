@@ -19,7 +19,6 @@
 #include <direct.h>
 #include <windows.h>
 #else
-#include <dirent.h>
 #endif
 #include "utils/imagen.h"
 #include "utils/timer.h"
@@ -27,7 +26,6 @@
 #include "kernels/bordes.h"
 #include "kernels/normalizar.h"
 #include "kernels/mse.h"
-
 
 #define CUDA_CHECK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -107,6 +105,18 @@ void crear_directorio_si_no_existe(const char* ruta) {
         fprintf(stderr, "No se pudo crear la carpeta %s\n", ruta);
         exit(1);
     }
+}
+
+std::string nombre_base_sin_extension(const std::string& ruta) {
+    size_t inicio = ruta.find_last_of("/\\");
+    std::string nombre = (inicio == std::string::npos) ? ruta : ruta.substr(inicio + 1);
+
+    size_t punto = nombre.find_last_of('.');
+    if (punto != std::string::npos) {
+        nombre = nombre.substr(0, punto);
+    }
+
+    return nombre;
 }
 
 double ejecutar_pipeline_cpu_equivalente(const std::vector<float>& entrada,
@@ -275,23 +285,24 @@ int main() {
     h2d_ms = detener_timer_event(&timer, "Transferencia H→D");
     printf("Batch copiado a GPU\n");
 
-    // Preparar referencia (ejemplo: primera imagen en gris). Se usa 16x16 = 256 hilos,
-    // múltiplo de 32 (tamaño de warp), adecuado para recorrer imágenes 2D por píxel.
-    escala_grises<<<dim3((W+15)/16,(H+15)/16), dim3(16,16)>>>(d_entrada, d_referencia, 1, H, W);
-    CUDA_CHECK(cudaGetLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
-
     // Grid y block
     // Bloque 16x16 = 256 hilos: múltiplo de 32, con buena ocupación para kernels 2D
     // donde cada hilo procesa un píxel y el batch se recorre internamente.
     dim3 bloque(16,16);
     dim3 grid((W+15)/16, (H+15)/16);
+    
+    // Preparar referencia (ejemplo: primera imagen en gris). Se usa 16x16 = 256 hilos,
+    // múltiplo de 32 (tamaño de warp), adecuado para recorrer imágenes 2D por píxel.
+    escala_grises<<<grid, bloque>>>(d_entrada, d_referencia, 1, H, W);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
 
     // ------------------------------------
     // Ejecutar kernels
     // ------------------------------------
     // Kernel 1: Grises
-    
+
     printf("Ejecutando kernel 1 - Grises\n");
     iniciar_timer_event(&timer);
     escala_grises<<<grid, bloque>>>(d_entrada, d_grises, B, H, W);
@@ -365,37 +376,33 @@ int main() {
     // Guardar imágenes
     // ------------------------------------
     for (int i = 0; i < B; i++) {
-        char nombre_original[128];
-        char nombre_grises[128];
-        char nombre_bordes[128];
-        char nombre_normalizada[128];
-
-        snprintf(nombre_original, sizeof(nombre_original), "resultados/imagen_%02d_original.png", i);
-        snprintf(nombre_grises, sizeof(nombre_grises), "resultados/imagen_%02d_grises.png", i);
-        snprintf(nombre_bordes, sizeof(nombre_bordes), "resultados/imagen_%02d_bordes.png", i);
-        snprintf(nombre_normalizada, sizeof(nombre_normalizada), "resultados/imagen_%02d_normalizada.png", i);
+        std::string base = nombre_base_sin_extension(archivos[i]);
+        std::string nombre_original = "resultados/" + base + "_original.png";
+        std::string nombre_grises = "resultados/" + base + "_grises.png";
+        std::string nombre_bordes = "resultados/" + base + "_bordes.png";
+        std::string nombre_normalizada = "resultados/" + base + "_normalizada.png";
 
         // Original RGB
         guardar_png_rgb(
-            nombre_original,
+            nombre_original.c_str(),
             &h_batch[i*3*H*W], 1, H, W
         );
 
         // Grises
         guardar_png_gris(
-            nombre_grises,
+            nombre_grises.c_str(),
             &h_grises[i*H*W], H, W
         );
 
         // Bordes
         guardar_png_gris(
-            nombre_bordes,
+            nombre_bordes.c_str(),
             &h_bordes[i*H*W], H, W
         );
 
         // Normalizado
         guardar_png_gris(
-            nombre_normalizada,
+            nombre_normalizada.c_str(),
             &h_normalizado[i*H*W], H, W
         );
     }
@@ -403,7 +410,9 @@ int main() {
     printf("Imágenes guardadas: %d originales, %d grises, %d bordes, %d normalizadas (%d PNG en total)\n",
            B, B, B, B, B * 4);
     FILE *f = fopen("resultados/rmse_por_imagen.txt", "w");
-    for (int i = 0; i < B; i++) fprintf(f, "Imagen %02d: %f\n", i, h_rmse[i]);
+    for (int i = 0; i < B; i++) {
+        fprintf(f, "%s: %f\n", nombre_base_sin_extension(archivos[i]).c_str(), h_rmse[i]);
+    }
     fclose(f);
 
     // ------------------------------------
